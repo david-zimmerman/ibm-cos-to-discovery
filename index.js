@@ -14,6 +14,8 @@
 const CloudObjectStorage = require("ibm-cos-sdk");
 
 async function main(args) {
+  console.log("main function was called.");
+
   const { cos, params } = getParamsCOS(args, CloudObjectStorage);
   let response;
   const result = params;
