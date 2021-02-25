@@ -20,11 +20,11 @@ const languageTranslator = new LanguageTranslatorV3({
 });
 
 // Discovery authentication
-const DiscoveryV2 = require('ibm-watson/discovery/v2');
+const DiscoveryV1 = require('ibm-watson/discovery/v1');
 const { IamAuthenticator } = require('ibm-watson/auth');
 
-const discovery = new DiscoveryV2({
-  version: '2019-11-22',
+const discovery = new DiscoveryV1({
+  version: '2019-04-30',
   authenticator: new IamAuthenticator({
     apikey: 'twO_ZJ-vMgIjlEBpJ2FDZhBu3slARh51V78jBGEFzfua',
   }),
@@ -36,9 +36,10 @@ async function main(params) {
 
   let processedRows = await readObject(params);
   for (let i = 1; i < processedRows.length; i++) {} // i=1 to ignore headers
+    title = processedRows[i][3]; // Index for the "title" cell
     text = processedRows[i][8]; // Index for the "text" cell
     let translatedText = await translateRow(text);
-    let result = await discoveryAddDoc(translatedText, params);
+    let result = await discoveryAddDoc(translatedText, title, language, params);
     console.log("Result: " + result);
   
   return {message: result};
@@ -70,10 +71,9 @@ async function readObject(params) {
   return csvRow
 }
 
-// translateRow: translate the text
-async function translateRow(text) { // Does the language have to be identified?
+// translateRow: Identify text language and translate the text
+async function translateRow(text) {
 
-  /*
   // Identify language
   const translateParams = {
     text: text
@@ -86,12 +86,9 @@ async function translateRow(text) { // Does the language have to be identified?
   .catch(err => {
     console.log('error:', err);
   });
-  */ 
+  language = Object.values(identifiedLanguages)[0];
 
-  const translateParams = {
-    text: text,
-    target: 'en',
-  };
+  translateParams.push({target: 'en'})
 
   languageTranslator.translate(translateParams)
   .then(translationResult => {
@@ -105,26 +102,27 @@ async function translateRow(text) { // Does the language have to be identified?
 }
 
 // discoveryAddDoc: add Document to Discovery
-async function discoveryAddDoc(text, params) {
+async function discoveryAddDoc(text, title, language) { // Include params if needing filename or fileContentType
 
   const addDocParams = {
-    projectId: 'ba9239ad-c0a3-4007-a2f5-e042acdf0a9c', // Is project ID the same as Environment ID?
+    environmentId: 'ba9239ad-c0a3-4007-a2f5-e042acdf0a9c',
     collectionId: 'c09a011f-3abb-426a-9cba-d8ab755f86ea',
     file: text,
-    filename: params.key,
-    fileContentType: params.notification.content_type
-    // Do you want any metadata?
+    // filename: params.key,
+    // fileContentType: params.notification.content_type,
+    metadata: {title: title, original_langauge: language}
   };
 
-  discovery.addDocument(addDocParams)
-    .then(response => {
-      console.log(JSON.stringify(response.result, null, 2));
-    })
-    .catch(err => {
-      console.log('error:', err);
-    });
+  discovery.addDocument(addDocumentParams)
+  .then(documentAccepted => {
+    const documentAccepted = response.result;
+    console.log(JSON.stringify(documentAccepted, null, 2));
+  })
+  .catch(err => {
+    console.log('error:', err);
+  });
 
-  return response
+  return documentAccepted
 }
 
 exports.main = main;
