@@ -1,10 +1,28 @@
 
+// Values to pass in for testing
+var args = {
+  bucket:"cloud-object-storage-sy-cos-standard-60u",
+  endpoint:"s3.private.us-east.cloud-object-storage.appdomain.cloud",
+  key:"news_VNM_general_YHNov12.csv",
+  notification:{
+    bucket_name:"cloud-object-storage-sy-cos-standard-60u",
+    content_type:"text/csv",
+    event_type:"Object:Write",
+    format:"2.0",
+    object_etag:"14f62eb7300530dbb0f17439f1bbc4a1",
+    object_length:"3497691",
+    object_name:"news_VNM_general_YHNov12.csv",
+    request_id:"1b04408b-9878-4581-9e68-b4b67f6f2e3f",
+    request_time:"2021-02-25T20:13:42.199Z"},
+  operation:"Object:Write"}
+
 // Cloud Obect Storage authentication
-const COS = require('ibm-cos-sdk');
-const clientInfo = {
-  iam_apikey: 'a_aIYyQRDrym0vjS0wbWC-mYOLHPQWv4SnZx3JEddAfT',
+const CloudObjectStorage = require("ibm-cos-sdk");
+const cosConfig = {
+  endpoint: "s3.us-east.cloud-object-storage.appdomain.cloud",
+  apiKeyId: "TUwpWEdqGmbMf5gbu6zG_vMFyG9s4KOpyJt2tNUUmSlc",
+  serviceInstanceId: "723e0497-1128-4796-a9f0-caeabbd8ae43"
 };
-const client = new COS.ResourceConfigurationV1(clientInfo);
 const csv=require('csvtojson');
 
 // Translator authentication
@@ -21,7 +39,6 @@ const languageTranslator = new LanguageTranslatorV3({
 
 // Discovery authentication
 const DiscoveryV1 = require('ibm-watson/discovery/v1');
-const { IamAuthenticator } = require('ibm-watson/auth');
 
 const discovery = new DiscoveryV1({
   version: '2019-04-30',
@@ -31,62 +48,65 @@ const discovery = new DiscoveryV1({
   serviceUrl: 'https://api.us-east.discovery.watson.cloud.ibm.com/instances/5f5192ff-6d72-4e06-a8d0-2ff969dbda05',
 });
 
-// Main function
-async function main(params) {
+main(args);
 
-  let processedRows = await readObject(params);
+// Main function
+async function main(args) {
+
+  var cos = await new CloudObjectStorage.S3(cosConfig);
+  let processedRows = await readObject(args, cos);
+
   for (let i = 1; i < processedRows.length; i++) {} // i=1 to ignore headers
-    title = processedRows[i][3]; // Index for the "title" cell
-    text = processedRows[i][8]; // Index for the "text" cell
-    let translatedText = await translateRow(text);
-    let result = await discoveryAddDoc(translatedText, title, language, params);
+    row = processedRows[i]
+    let translatedText = await translateRow(row);
+    title = row[3]; // Index for the "title" cell
+    text = row[8]; // Index for the "text" cell
+    let result = await discoveryAddDoc(translatedText, title, language, args);
     console.log("Result: " + result);
   
   return {message: result};
 }
 
 // readObject: read COS document and process rows
-async function readObject(params) {
+async function readObject(args, cos) {
 
   const readObjectParams = {
-    Bucket: params.bucket,
-    Key: params.key
+    Bucket: args.bucket,
+    Key: args.key
   }
 
-  let COSObject = COS.getObject(readObjectParams)
-  csvStr = COSObject.Body.toString();
+  let result = await cos.getObject(readObjectParams).promise()
+  let csvStr = Buffer.from(result.Body).toString();
 
   // Process from CSV String to CSV Row
-  csvStr = result.body;
-
-  csv({
+  csvRow = csv({
     noheader:true,
     output: "csv"
   })
   .fromString(csvStr)
-  .then((csvRow)=>{ 
-    console.log(csvRow) // => [["1","2","3"], ["4","5","6"], ["7","8","9"]]
-  })
+  // .then((csvRow)=>{ 
+  //   console.log(csvRow) // => [["1","2","3"], ["4","5","6"], ["7","8","9"]]
+  // })
 
   return csvRow
 }
 
 // translateRow: Identify text language and translate the text
-async function translateRow(text) {
+async function translateRow(row) {
 
   // Identify language
   const translateParams = {
-    text: text
+    text: row
   };
 
-  languageTranslator.identify(translateParams)
+  identifiedLanguages = languageTranslator.identify(translateParams)
   .then(identifiedLanguages => {
     console.log(JSON.stringify(identifiedLanguages, null, 2));
   })
   .catch(err => {
     console.log('error:', err);
   });
-  language = Object.values(identifiedLanguages)[0];
+  language = Object.values(identifiedLanguages[0]);
 
   translateParams.push({target: 'en'})
 
@@ -102,20 +122,19 @@ async function translateRow(text) {
 }
 
 // discoveryAddDoc: add Document to Discovery
-async function discoveryAddDoc(text, title, language) { // Include params if needing filename or fileContentType
+async function discoveryAddDoc(text, title, language) { // Include args if needing filename or fileContentType
 
   const addDocParams = {
     environmentId: 'ba9239ad-c0a3-4007-a2f5-e042acdf0a9c',
     collectionId: 'c09a011f-3abb-426a-9cba-d8ab755f86ea',
     file: text,
-    // filename: params.key,
-    // fileContentType: params.notification.content_type,
+    // filename: args.key,
+    // fileContentType: args.notification.content_type,
     metadata: {title: title, original_langauge: language}
   };
 
-  discovery.addDocument(addDocumentParams)
+  discovery.addDocument(addDocParams)
   .then(documentAccepted => {
-    const documentAccepted = response.result;
     console.log(JSON.stringify(documentAccepted, null, 2));
   })
   .catch(err => {
